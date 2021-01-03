@@ -5,6 +5,7 @@ from .typing import DType
 global_node_id = -1
 int_type = ir.IntType(32)
 
+
 class LRValue(Enum):
     """Enum class for the node,
     whether it is a left value or a right value
@@ -12,6 +13,7 @@ class LRValue(Enum):
 
     LEFT = 1
     RIGHT = 2
+
 
 class BinaryOpr(Enum):
     """Legal Binay operator
@@ -22,10 +24,12 @@ class BinaryOpr(Enum):
     SDIV = 4
     FDIV = 5
 
+
 class UnaryOpr(Enum):
     """Legal Unary operator
     """
     NEG = 1
+
 
 def uuname(raw_name):
     """Get a unique name for every node
@@ -34,6 +38,7 @@ def uuname(raw_name):
     global global_node_id
     global_node_id += 1
     return raw_name + "_" + str(global_node_id)
+
 
 biopr_map = {
     BinaryOpr.ADD: {
@@ -77,9 +82,11 @@ unopr_map = {
     }
 }
 
+
 class LoopCtx():
     """Context for loop ir in llvmlite
     """
+
     def __init__(
         self,
         prefix: str,
@@ -87,7 +94,7 @@ class LoopCtx():
         stop: (int_type, ir.Constant),
         start: (int_type, ir.Constant) = 0,
         step: (int_type, ir.Constant) = 1
-        ) -> None:
+    ) -> None:
         self.builder = builder
         self.inc = builder.alloca(int_type, name='i')
         self.stop = ir.Constant(

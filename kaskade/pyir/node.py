@@ -7,15 +7,11 @@ from ctypes import c_float, POINTER, pointer, byref, addressof, c_double, c_int3
 from .utils import LRValue, uuname, BinaryOpr, UnaryOpr, biopr_map, LoopCtx, unopr_map
 from . import global_records as gr
 from .typing import DType, type_map_llvm, type_cast_llvm
-from typing import Optional, Set
+from typing import Optional, Set, Iterable
 from math import ceil
 
 
-
-float_type = ir.FloatType()
-np_float = np.float32
 int_type = ir.IntType(32)
-ptr_float = ir.PointerType(float_type)
 
 
 class Node():
@@ -36,7 +32,7 @@ class Node():
         name: str,
         dtype: DType,
         vtype: LRValue = LRValue.RIGHT
-        ) -> None:
+    ) -> None:
         super().__init__()
         self.size = size
         self.name = uuname(name)
@@ -45,11 +41,12 @@ class Node():
         self.vtype = vtype
         self.gened = False
         self.dependence: Set[Node] = set()
-        gr._append({"type":"make","target":self}) # leave a record of initilizing itself
+        # leave a record of initilizing itself
+        gr._append({"type": "make", "target": self})
 
- #-------------------------------------------
+ # -------------------------------------------
  # Basic operations
- #-------------------------------------------
+ # -------------------------------------------
     def allocate(self, builder: ir.IRBuilder) -> None:
         """Use IRBuilder to allocate memory of 'size' and use self.alloc as the pointer,
         Need twice of space for complex data.
@@ -61,12 +58,17 @@ class Node():
                 self.size,
                 self.name+"-data"
             )
-        else: #Complx or DComplx
+        else:  # Complx or DComplx
             self.alloc = builder.alloca(
                 type_map_llvm[self.dtype],
                 self.size * 2,
                 self.name+"-data"
             )
+
+    def set_alloc_from(self, mem_ptr) -> None:
+        """Use existing mem_ptr as the alloca memory
+        """
+        self.alloc = mem_ptr
 
     def code_gen(self, bd: ir.IRBuilder) -> None:
         """Wrapper of the code_gen function,
@@ -81,7 +83,7 @@ class Node():
 
         if self.vtype == LRValue.LEFT:
             self._code_gen(bd)
-        
+
     def _code_gen(self, bd: ir.IRBuilder) -> None:
         raise NotImplementedError
 
@@ -89,7 +91,7 @@ class Node():
         self,
         ind: (ir.Constant, ir.instructions.Instruction, int),
         builder: ir.IRBuilder
-        ) -> [ir.instructions.Instruction]:
+    ) -> [ir.instructions.Instruction]:
         """Generate the llvm ir to get cirtain element,
         ind can be a integer in python or int_type in llvm ir,
         but its type must be ir.IntType(32).
@@ -108,7 +110,7 @@ class Node():
         else:
             # print(self._load_from_src(ind, builder))
             return self._load_from_src(ind, builder)
-        
+
     def _load_from_src(self, ind, builder) -> [ir.LoadInstr]:
         raise NotImplementedError
 
@@ -117,7 +119,7 @@ class Node():
         index: (ir.Constant, ir.Instruction),
         src_nums: [ir.LoadInstr],
         builder: ir.IRBuilder
-        ) -> None:
+    ) -> None:
         if not self.dtype in (DType.Complx, DType.DComplx):
             dest_ptr = builder.gep(self.alloc, [index])
             builder.store(src_nums[0], dest_ptr)
@@ -125,7 +127,8 @@ class Node():
             cmplx_dest_index = builder.mul(index, ir.Constant(int_type, 2))
             dest_ptr_r = builder.gep(self.alloc, [cmplx_dest_index])
             builder.store(src_nums[0], dest_ptr_r)
-            cmplx_dest_index = builder.add(cmplx_dest_index, ir.Constant(int_type, 1))
+            cmplx_dest_index = builder.add(
+                cmplx_dest_index, ir.Constant(int_type, 1))
             dest_ptr_i = builder.gep(self.alloc, [cmplx_dest_index])
             builder.store(src_nums[1], dest_ptr_i)
 
@@ -133,7 +136,7 @@ class Node():
         self,
         index: (ir.Constant, ir.Instruction),
         builder: ir.IRBuilder
-        ) -> [ir.LoadInstr]:
+    ) -> [ir.LoadInstr]:
         if not self.dtype in (DType.Complx, DType.DComplx):
             self_ptr = builder.gep(self.alloc, [index])
             products = [builder.load(self_ptr)]
@@ -145,116 +148,122 @@ class Node():
             self_ptr_imag = builder.gep(self.alloc, [cmplx_index])
             product_imag = builder.load(self_ptr_imag)
             products = [product_real, product_imag]
-        
+
         return products
 
- #-------------------------------------------
+ # -------------------------------------------
  # Mathematical operations
- #-------------------------------------------
+ # -------------------------------------------
 
     def __add__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
         return BinOpNode(BinaryOpr.ADD, self, other)
-    
+
     def __radd__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
         return BinOpNode(BinaryOpr.ADD, self, other)
-    
+
     def __sub__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
         return BinOpNode(BinaryOpr.SUB, self, other)
 
     def __rsub__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
         return BinOpNode(BinaryOpr.SUB, other, self)
 
     def __mul__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
         return BinOpNode(BinaryOpr.MUL, self, other)
 
     def __rmul__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
         return BinOpNode(BinaryOpr.MUL, self, other)
 
     def __floordiv__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
 
         return BinOpNode(BinaryOpr.SDIV, self, other)
 
     def __rfloordiv__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
 
         return BinOpNode(BinaryOpr.SDIV, other, self)
 
     def __truediv__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
         return BinOpNode(BinaryOpr.FDIV, self, other)
 
     def __rtruediv__(
         self,
         other: (Node, int, float, complex)
-        ) -> Node:
+    ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other)
+            other = make_const_node(other, self.dtype)
         return BinOpNode(BinaryOpr.FDIV, other, self)
 
- #-------------------------------------------
+    def __neg__(self):
+        return UnaOpNode(UnaryOpr.NEG, self)
+
+ # -------------------------------------------
  # Indexing operations
- #-------------------------------------------
+ # -------------------------------------------
     def __getitem__(
         self,
-        index: (int, list, tuple, Node, slice, np.ndarray)
-        ) -> Node:
+        index: (int, ir.Constant, ir.Instruction,
+                list, tuple, Node, slice, np.ndarray)
+    ) -> Node:
+        if isinstance(index, int):
+            index = ConstNode(index, DType.Int)
         return GetSliceNode(index, self)
 
     def __setitem__(
         self,
         index: (int, Node, slice, list, tuple, np.ndarray),
         val: (float, int, complex, Node)
-        ) -> None:
+    ) -> None:
         """Setting index,
         Do not recommend to use numpy array for index
         Do not recommend to use numpy array, list or tuple for val
         """
-        
+
         if isinstance(val, (float, int, complex)):
-            val = make_const_node(val)
+            val = make_const_node(val, self.dtype)
         length = compute_size(index, self.size)
         if isinstance(index, Node):
             assert(index.dtype == DType.Int)
@@ -262,10 +271,10 @@ class Node():
         gr._append({"type": "set", "target": self, "src": (index, val)})
 
     def _gen_setitem(
-        self,
-        builder: ir.IRBuilder,
-        index: (int, Node, slice, list, tuple, np.ndarray),
-        val: Node) -> None:
+            self,
+            builder: ir.IRBuilder,
+            index: (int, Node, slice, list, tuple, np.ndarray),
+            val: Node) -> None:
         """When set index to one node, it must be LValue node,
         if not, the graph maintainer should modify its vtype to LEFT.
         Also, only when the arry is required, it can be generated.
@@ -297,7 +306,7 @@ class Node():
                 self._store_to_alloc(dest_index, src_nums, builder)
         else:
             all_inds = builder.alloca(int_type, len(index))
-            #TODO: change this to malloc function
+            # TODO: change this to malloc function
             for i in range(len(index)):
                 ind_ptr = builder.gep(all_inds, [ir.Constant(int_type, i)])
                 builder.store(ir.Constant(int_type, index[i]), ind_ptr)
@@ -308,9 +317,9 @@ class Node():
                 src_nums = val.get_ele(loop_inc)
                 self._store_to_alloc(dest_index, src_nums, builder)
 
- #-------------------------------------------
+ # -------------------------------------------
  # Iteration methods
- #-------------------------------------------
+ # -------------------------------------------
     def __iter__(self):
         self.iter_ind = 0
         return self
@@ -333,12 +342,15 @@ class Node():
  #     def _gen_mov(self,builder: ir.IRBuilder):
  #         pass
  #
- #-------------------------------------------
+ # -------------------------------------------
  # Other methods
- #-------------------------------------------
+ # -------------------------------------------
     def rename(self, new_name: str) -> None:
         self.name = uuname(new_name)
         self.label = new_name
+
+    def __str__(self) -> str:
+        return f"{self.label}:{self.name}"
 
 
 class InputNode(Node):
@@ -350,7 +362,7 @@ class InputNode(Node):
         size: int,
         name: str,
         dtype: DType
-        ):
+    ):
         if not name:
             name = "input"
         super().__init__(size, name, dtype, LRValue.LEFT)
@@ -366,7 +378,7 @@ class BinOpNode(Node):
     """Generated node from binary operator
     """
 
-    def __init__(self, opr: BinaryOpr ,LHS: Node, RHS: Node) -> None:
+    def __init__(self, opr: BinaryOpr, LHS: Node, RHS: Node) -> None:
         size = det_size(LHS, RHS)
         dtype = det_dtype(opr, LHS.dtype, RHS.dtype)
         super().__init__(size, biopr_map[opr][dtype], dtype)
@@ -386,7 +398,7 @@ class BinOpNode(Node):
         self,
         loop_inc: (ir.instructions.Instruction, ir.Constant),
         builder: ir.IRBuilder
-        ) -> [ir.instructions.Instruction]:
+    ) -> [ir.instructions.Instruction]:
         """Build llvm ir for binary operator
         If the type of any operand is different from the output type, a type cast from type_cast_llvm dict
         should be performed.
@@ -404,7 +416,7 @@ class BinOpNode(Node):
                 if cast_params:
                     cast_instr = getattr(builder, cast_params[0])
                     left_num = cast_instr(left_num, cast_params[1])
-            
+
             if self.RHS.dtype != self.dtype:
                 cast_params = type_cast_llvm[(self.RHS.dtype, self.dtype)]
                 if cast_params:
@@ -414,9 +426,10 @@ class BinOpNode(Node):
             product = opr_instr(left_num, right_num)
             return [product]
         else:
-            
+
             if self.LHS.dtype in (DType.Complx, DType.DComplx):
-                left_num_real, left_num_imag = self.LHS.get_ele(loop_inc, builder)
+                left_num_real, left_num_imag = self.LHS.get_ele(
+                    loop_inc, builder)
 
             else:
                 left_num_real = self.LHS.get_ele(loop_inc, builder)[0]
@@ -430,7 +443,8 @@ class BinOpNode(Node):
                     left_num_imag = cast_instr(left_num_imag, cast_params[1])
 
             if self.RHS.dtype in (DType.Complx, DType.DComplx):
-                right_num_real, right_num_imag = self.RHS.get_ele(loop_inc, builder)
+                right_num_real, right_num_imag = self.RHS.get_ele(
+                    loop_inc, builder)
             else:
                 right_num_real = self.RHS.get_ele(loop_inc, builder)[0]
                 right_num_imag = ir.Constant(type_map_llvm[self.RHS.dtype], 0)
@@ -474,7 +488,7 @@ class BinOpNode(Node):
         self,
         ind: (ir.Constant, ir.Instruction),
         builder: ir.IRBuilder
-        ) -> [ir.Instruction]:
+    ) -> [ir.Instruction]:
         # If self is Rvalue type, get elements from its source
         # and calculate them inplace.
         # If self is Lvalue type, the value has been calculated and stored in self.alloc
@@ -486,34 +500,37 @@ class BinOpNode(Node):
 class UnaOpNode(Node):
     """Generated node from unary operator
     """
-    def __init__(self, opr: UnaryOpr ,SRC: Node) -> None:
-        super().__init__(SRC.size, unopr_map[opr][self.dtype], SRC.dtype)
+
+    def __init__(self, opr: UnaryOpr, SRC: Node) -> None:
+        super().__init__(SRC.size, unopr_map[opr][SRC.dtype], SRC.dtype)
         self.SRC = SRC
         self.opr = opr
         self.dependence = {SRC}
 
-    def _code_gen(self, builder:ir.IRBuilder) -> None:
+    def _code_gen(self, builder: ir.IRBuilder) -> None:
         with LoopCtx(self.name, builder, self.size) as loop:
             loop_inc = builder.load(loop.inc)
             products = self._build_opr(loop_inc, builder)
             self._store_to_alloc(loop_inc, products, builder)
 
     def _build_opr(
-        self,
-        loop_inc: (ir.Constant, ir.instructions.Instruction),
-        builder: ir.IRBuilder) -> [ir.instructions.Instruction]:
-        
+            self,
+            loop_inc: (ir.Constant, ir.instructions.Instruction),
+            builder: ir.IRBuilder) -> [ir.instructions.Instruction]:
+
         if not self.dtype in (DType.DComplx, DType.Complx):
-            instr = getattr(builder, unopr_map[self.opr][self.dtype])
-            src_num = self.SRC.get_ele(loop_inc, builder)[0]
-            products = [instr(src_num)]
+            if self.opr == UnaryOpr.NEG:
+                instr = getattr(builder, biopr_map[BinaryOpr.SUB][self.dtype])
+                src_num = self.SRC.get_ele(loop_inc, builder)[0]
+                const0 = ir.Constant(type_map_llvm[self.dtype], 0)
+                products = [instr(const0, src_num)]
 
         else:
             if self.opr == UnaryOpr.NEG:
+                instr = getattr(builder, biopr_map[BinaryOpr.SUB][self.dtype])
                 src_real, src_imag = self.SRC.get_ele(loop_inc, builder)
-                product_real = builder.neg(src_real)
-                product_imag = builder.neg(src_imag)
-                products = [product_real, product_imag]
+                const0 = ir.Constant(type_map_llvm[self.dtype], 0)
+                products = [instr(const0, src_real), instr(const0, src_imag)]
 
             else:
                 print("Unsupported unary operation: {}".format(self.opr))
@@ -524,7 +541,7 @@ class UnaOpNode(Node):
         self,
         ind: (ir.Constant, ir.Instruction),
         builder: ir.IRBuilder
-        ) -> [ir.Instruction]:
+    ) -> [ir.Instruction]:
 
         return self._build_opr(ind, builder)
 
@@ -534,11 +551,12 @@ class ConstNode(Node):
     Exactly one node allowed for each number
     """
     _existing_vals = {}
-    def __new__(cls, val:(int, float, complex), dtype:DType, *args, **kw):
+
+    def __new__(cls, val: (int, float, complex), dtype: DType, *args, **kw):
         if not val in cls._existing_vals:
             cls._existing_vals[val] = object.__new__(cls, *args, **kw)
         return cls._existing_vals[val]
-    
+
     def __init__(self, val: (int, float, complex), dtype: DType) -> None:
         super().__init__(1, "const"+str(val), dtype)
 
@@ -547,18 +565,18 @@ class ConstNode(Node):
         else:
             self.const_real = ir.Constant(type_map_llvm[self.dtype], val.real)
             self.const_imag = ir.Constant(type_map_llvm[self.dtype], val.imag)
-    
+
     def _load_from_src(
         self,
-        ind:(ir.Constant, ir.Instruction),
+        ind: (ir.Constant, ir.Instruction),
         builder: ir.IRBuilder
-        ) -> [ir.Instruction]:
+    ) -> [ir.Instruction]:
         zero = ir.Constant(type_map_llvm[self.dtype], 0)
         if not self.dtype in (DType.Complx, DType.DComplx):
-            if self.dtype == DType.Float:
-                return [builder.fadd(zero, self.const)]
-            elif self.dtype == DType.Int:
+            if self.dtype == DType.Int:
                 return [builder.add(zero, self.const)]
+            else:
+                return [builder.fadd(zero, self.const)]
         else:
             return [builder.fadd(zero, self.const_real), builder.fadd(zero, self.const_imag)]
 
@@ -567,11 +585,13 @@ class GetSliceNode(Node):
     """ Node generated from indexing,
     support int, slice, Node and numpy array index
     """
+
     def __init__(
         self,
-        ind: (int, list, tuple, Node, slice, np.ndarray),
+        ind: (ir.Constant,
+              ir.Instruction, list, tuple, Node, slice, np.ndarray),
         src: Node
-        ) -> None:
+    ) -> None:
         size = compute_size(ind, src.size)
         super().__init__(size, "slice", src.dtype)
         self.dependence = {src}
@@ -621,7 +641,9 @@ class GetSliceNode(Node):
 
         with LoopCtx(self.name, builder, self.size) as loop:
             loop_inc = builder.load(loop.inc)
-            if isinstance(self.ind, slice):
+            if isinstance(self.ind, (ir.Constant, ir.Instruction)):
+                src_index = self.ind
+            elif isinstance(self.ind, slice):
                 src_index = builder.load(src_index_ptr)
             elif isinstance(self.ind, Node):
                 src_index = self.ind.get_ele(loop_inc, builder)[0]
@@ -635,14 +657,14 @@ class GetSliceNode(Node):
             if isinstance(self.ind, slice):
                 builder.store(builder.add(
                     src_index, step_const), src_index_ptr)
-                
 
     def _load_from_src(
         self,
         ind: (ir.Constant, ir.Instruction),
         builder: ir.IRBuilder
-        ) -> [ir.Instruction]:
-
+    ) -> [ir.Instruction]:
+        if isinstance(self.ind, (ir.Constant, ir.Instruction)):
+            src_index = self.ind
         if isinstance(self.ind, slice):
             start, _, step = self.ind.indices(self.src.size)
             muled = builder.mul(ind, ir.Constant(int_type, step))
@@ -683,7 +705,7 @@ class FuncNode(Node):
         self,
         ind: (ir.Constant, ir.Instruction),
         builder: ir.IRBuilder
-        ) -> [ir.Instruction]:
+    ) -> [ir.Instruction]:
 
         mod = builder.block.module
         instr = ir.values.Function(mod, self.ftype, self.func_name)
@@ -708,7 +730,8 @@ def det_size(LHS: Node, RHS: Node) -> int:
     assert(LHS.size == RHS.size)
     return LHS.size
 
-def det_dtype(opr:BinaryOpr, Ltype: DType, Rtype: DType) -> DType:
+
+def det_dtype(opr: BinaryOpr, Ltype: DType, Rtype: DType) -> DType:
     """Determine the output data type,
     Implicit dtype conversion may applies.
     Note that type may varies if opr is SDIV or FDIV
@@ -747,6 +770,7 @@ def det_dtype(opr:BinaryOpr, Ltype: DType, Rtype: DType) -> DType:
         else:
             return DType.Int
 
+
 def compute_size(index_obj, max_len: int) -> int:
     if isinstance(index_obj, int):
         return 1
@@ -758,20 +782,16 @@ def compute_size(index_obj, max_len: int) -> int:
         size = ceil((stop-start)/step)
         assert(size <= max_len)
         return size
-    elif isinstance(np.ndarray):
-        assert(index_obj.dtype=="int")
+    elif isinstance(index_obj, np.ndarray):
+        assert(index_obj.dtype == "int")
         return len(index_obj)
-    elif isinstance(Node):
-        assert(index_obj.dtype==DType.Int)
-        return Node.size
+    elif isinstance(index_obj, Node):
+        assert(index_obj.dtype == DType.Int)
+        return index_obj.size
     else:
         print("Unsupported indexing type")
         raise IndexError
 
-def make_const_node(raw: (int, float, complex)) -> ConstNode:
-    if isinstance(raw, int):
-        return ConstNode(raw, DType.Int)
-    elif isinstance(raw, float):
-        return ConstNode(raw, DType.Float)
-    elif isinstance(raw, complex):
-        return ConstNode(raw, DType.Complx)
+
+def make_const_node(raw: (int, float, complex), dtype: DType) -> ConstNode:
+    return ConstNode(raw, dtype)
