@@ -1,0 +1,6 @@
+.python-version
+.vscode
+__pycache__
+temp
+test.py
+TODO.md
