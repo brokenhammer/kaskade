@@ -7,7 +7,7 @@ from ctypes import c_float, POINTER, pointer, byref, addressof, c_double, c_int3
 from .utils import LRValue, uuname, BinaryOpr, UnaryOpr, biopr_map, LoopCtx, unopr_map
 from . import global_records as gr
 from .typing import DType, type_map_llvm, type_cast_llvm
-from typing import Optional, Set, Iterable
+from typing import Optional, Set, Iterable, Tuple, List, Union
 from math import ceil
 
 
@@ -89,9 +89,9 @@ class Node():
 
     def get_ele(
         self,
-        ind: (ir.Constant, ir.instructions.Instruction, int),
+        ind: Union[ir.Constant, ir.instructions.Instruction, int],
         builder: ir.IRBuilder
-    ) -> [ir.instructions.Instruction]:
+    ) -> List[ir.instructions.Instruction]:
         """Generate the llvm ir to get cirtain element,
         ind can be a integer in python or int_type in llvm ir,
         but its type must be ir.IntType(32).
@@ -111,13 +111,13 @@ class Node():
             # print(self._load_from_src(ind, builder))
             return self._load_from_src(ind, builder)
 
-    def _load_from_src(self, ind, builder) -> [ir.LoadInstr]:
+    def _load_from_src(self, ind, builder) -> List[ir.LoadInstr]:
         raise NotImplementedError
 
     def _store_to_alloc(
         self,
-        index: (ir.Constant, ir.Instruction),
-        src_nums: [ir.LoadInstr],
+        index: Union[ir.Constant, ir.Instruction],
+        src_nums: List[ir.LoadInstr],
         builder: ir.IRBuilder
     ) -> None:
         if not self.dtype in (DType.Complx, DType.DComplx):
@@ -134,9 +134,9 @@ class Node():
 
     def _load_from_alloc(
         self,
-        index: (ir.Constant, ir.Instruction),
+        index: Union[ir.Constant, ir.Instruction],
         builder: ir.IRBuilder
-    ) -> [ir.LoadInstr]:
+    ) -> List[ir.LoadInstr]:
         if not self.dtype in (DType.Complx, DType.DComplx):
             self_ptr = builder.gep(self.alloc, [index])
             products = [builder.load(self_ptr)]
@@ -157,7 +157,7 @@ class Node():
 
     def __add__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -165,7 +165,7 @@ class Node():
 
     def __radd__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -173,7 +173,7 @@ class Node():
 
     def __sub__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -181,7 +181,7 @@ class Node():
 
     def __rsub__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -189,7 +189,7 @@ class Node():
 
     def __mul__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -197,7 +197,7 @@ class Node():
 
     def __rmul__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -205,7 +205,7 @@ class Node():
 
     def __floordiv__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -214,7 +214,7 @@ class Node():
 
     def __rfloordiv__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -223,7 +223,7 @@ class Node():
 
     def __truediv__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -231,7 +231,7 @@ class Node():
 
     def __rtruediv__(
         self,
-        other: (Node, int, float, complex)
+        other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
             other = make_const_node(other, self.dtype)
@@ -245,8 +245,8 @@ class Node():
  # -------------------------------------------
     def __getitem__(
         self,
-        index: (int, ir.Constant, ir.Instruction,
-                list, tuple, Node, slice, np.ndarray)
+        index: Union[int, ir.Constant, ir.Instruction,
+                list, tuple, Node, slice, np.ndarray]
     ) -> Node:
         if isinstance(index, int):
             index = ConstNode(index, DType.Int)
@@ -254,8 +254,8 @@ class Node():
 
     def __setitem__(
         self,
-        index: (int, Node, slice, list, tuple, np.ndarray),
-        val: (float, int, complex, Node)
+        index: Union[int, Node, slice, list, tuple, np.ndarray],
+        val: Union[float, int, complex, Node]
     ) -> None:
         """Setting index,
         Do not recommend to use numpy array for index
@@ -273,7 +273,7 @@ class Node():
     def _gen_setitem(
             self,
             builder: ir.IRBuilder,
-            index: (int, Node, slice, list, tuple, np.ndarray),
+            index: Union[int, Node, slice, list, tuple, np.ndarray],
             val: Node) -> None:
         """When set index to one node, it must be LValue node,
         if not, the graph maintainer should modify its vtype to LEFT.
@@ -396,9 +396,9 @@ class BinOpNode(Node):
 
     def _build_opr(
         self,
-        loop_inc: (ir.instructions.Instruction, ir.Constant),
+        loop_inc: Union[ir.instructions.Instruction, ir.Constant],
         builder: ir.IRBuilder
-    ) -> [ir.instructions.Instruction]:
+    ) -> List[ir.instructions.Instruction]:
         """Build llvm ir for binary operator
         If the type of any operand is different from the output type, a type cast from type_cast_llvm dict
         should be performed.
@@ -486,9 +486,9 @@ class BinOpNode(Node):
 
     def _load_from_src(
         self,
-        ind: (ir.Constant, ir.Instruction),
+        ind: Union[ir.Constant, ir.Instruction],
         builder: ir.IRBuilder
-    ) -> [ir.Instruction]:
+    ) -> List[ir.Instruction]:
         # If self is Rvalue type, get elements from its source
         # and calculate them inplace.
         # If self is Lvalue type, the value has been calculated and stored in self.alloc
@@ -515,8 +515,8 @@ class UnaOpNode(Node):
 
     def _build_opr(
             self,
-            loop_inc: (ir.Constant, ir.instructions.Instruction),
-            builder: ir.IRBuilder) -> [ir.instructions.Instruction]:
+            loop_inc: Union[ir.Constant, ir.instructions.Instruction],
+            builder: ir.IRBuilder) -> List[ir.instructions.Instruction]:
 
         if not self.dtype in (DType.DComplx, DType.Complx):
             if self.opr == UnaryOpr.NEG:
@@ -539,9 +539,9 @@ class UnaOpNode(Node):
 
     def _load_from_src(
         self,
-        ind: (ir.Constant, ir.Instruction),
+        ind: Union[ir.Constant, ir.Instruction],
         builder: ir.IRBuilder
-    ) -> [ir.Instruction]:
+    ) -> List[ir.Instruction]:
 
         return self._build_opr(ind, builder)
 
@@ -552,12 +552,12 @@ class ConstNode(Node):
     """
     _existing_vals = {}
 
-    def __new__(cls, val: (int, float, complex), dtype: DType, *args, **kw):
+    def __new__(cls, val: Union[int, float, complex], dtype: DType, *args, **kw):
         if not val in cls._existing_vals:
             cls._existing_vals[val] = object.__new__(cls, *args, **kw)
         return cls._existing_vals[val]
 
-    def __init__(self, val: (int, float, complex), dtype: DType) -> None:
+    def __init__(self, val: Union[int, float, complex], dtype: DType) -> None:
         super().__init__(1, "const"+str(val), dtype)
 
         if not self.dtype in (DType.Complx, DType.DComplx):
@@ -568,9 +568,9 @@ class ConstNode(Node):
 
     def _load_from_src(
         self,
-        ind: (ir.Constant, ir.Instruction),
+        ind: Union[ir.Constant, ir.Instruction],
         builder: ir.IRBuilder
-    ) -> [ir.Instruction]:
+    ) -> List[ir.Instruction]:
         zero = ir.Constant(type_map_llvm[self.dtype], 0)
         if not self.dtype in (DType.Complx, DType.DComplx):
             if self.dtype == DType.Int:
@@ -588,8 +588,8 @@ class GetSliceNode(Node):
 
     def __init__(
         self,
-        ind: (ir.Constant,
-              ir.Instruction, list, tuple, Node, slice, np.ndarray),
+        ind: Union[ir.Constant,
+              ir.Instruction, list, tuple, Node, slice, np.ndarray],
         src: Node
     ) -> None:
         size = compute_size(ind, src.size)
@@ -660,9 +660,9 @@ class GetSliceNode(Node):
 
     def _load_from_src(
         self,
-        ind: (ir.Constant, ir.Instruction),
+        ind: Union[ir.Constant, ir.Instruction],
         builder: ir.IRBuilder
-    ) -> [ir.Instruction]:
+    ) -> List[ir.Instruction]:
         if isinstance(self.ind, (ir.Constant, ir.Instruction)):
             src_index = self.ind
         if isinstance(self.ind, slice):
@@ -680,7 +680,7 @@ class GetSliceNode(Node):
 
 class FuncNode(Node):
     # mapping scalar function to vector
-    def __init__(self, size: int, func_name: str, rettype: DType, ftype: ir.FunctionType, SRC: list[Node] or []):
+    def __init__(self, size: int, func_name: str, rettype: DType, ftype: ir.FunctionType, SRC: List[Node] or List[None]):
         super().__init__(size, func_name, rettype)
         self.func_name = func_name
         self.SRC = SRC
@@ -703,9 +703,9 @@ class FuncNode(Node):
 
     def _load_from_src(
         self,
-        ind: (ir.Constant, ir.Instruction),
-        builder: ir.IRBuilder
-    ) -> [ir.Instruction]:
+        ind: Union[ir.Constant, ir.Instruction],
+            builder: ir.IRBuilder
+    ) -> List[ir.Instruction]:
 
         mod = builder.block.module
         instr = ir.values.Function(mod, self.ftype, self.func_name)
@@ -793,5 +793,5 @@ def compute_size(index_obj, max_len: int) -> int:
         raise IndexError
 
 
-def make_const_node(raw: (int, float, complex), dtype: DType) -> ConstNode:
+def make_const_node(raw: Union[int, float, complex], dtype: DType) -> ConstNode:
     return ConstNode(raw, dtype)

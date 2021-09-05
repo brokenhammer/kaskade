@@ -26,8 +26,8 @@ def func(name, module, rettype, argtypes):
 
 def initialize(
     input_arr: Dict[str, Union[np.ndarray, List, Tuple]],
-    output_arr: list[Node]
-) -> (ir.Function, ir.IRBuilder):
+    output_arr: List[Node]
+) -> Union[ir.Function, ir.IRBuilder]:
     mod = ir.Module("mymodule")
     params = []
     for n in input_arr:
@@ -46,7 +46,7 @@ def finalize(builder) -> None:
 def finalize_and_return(
     builder,
     input_arr: Dict[Node, Union[np.ndarray, List, Tuple]],
-    output_arr: list[Node]
+    output_arr: List[Node]
 ) -> List[np.ndarray]:
 
     finalize(builder)

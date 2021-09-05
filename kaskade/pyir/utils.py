@@ -1,6 +1,7 @@
 from enum import Enum
 from llvmlite import ir
 from .typing import DType
+from typing import Union
 
 global_node_id = -1
 int_type = ir.IntType(32)
@@ -91,9 +92,9 @@ class LoopCtx():
         self,
         prefix: str,
         builder: ir.IRBuilder,
-        stop: (int_type, ir.Constant),
-        start: (int_type, ir.Constant) = 0,
-        step: (int_type, ir.Constant) = 1
+        stop: Union[int_type, ir.Constant],
+        start: Union[int_type, ir.Constant] = 0,
+        step: Union[int_type, ir.Constant] = 1
     ) -> None:
         self.builder = builder
         self.inc = builder.alloca(int_type, name='i')
