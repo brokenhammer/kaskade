@@ -6,7 +6,7 @@ import numpy as np
 from ctypes import c_float, POINTER, pointer, byref, addressof, c_double, c_int32
 from .utils import LRValue, uuname, BinaryOpr, UnaryOpr, biopr_map, LoopCtx, unopr_map
 from . import global_records as gr
-from .typing import DType, type_map_llvm, type_cast_llvm
+from .typing import DType, type_map_llvm, type_cast_llvm, build_type_cast
 from typing import Optional, Set, Iterable, Tuple, List, Union
 from math import ceil
 
@@ -160,7 +160,7 @@ class Node():
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
         return BinOpNode(BinaryOpr.ADD, self, other)
 
     def __radd__(
@@ -168,7 +168,7 @@ class Node():
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
         return BinOpNode(BinaryOpr.ADD, self, other)
 
     def __sub__(
@@ -176,7 +176,7 @@ class Node():
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
         return BinOpNode(BinaryOpr.SUB, self, other)
 
     def __rsub__(
@@ -184,7 +184,7 @@ class Node():
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
         return BinOpNode(BinaryOpr.SUB, other, self)
 
     def __mul__(
@@ -192,7 +192,7 @@ class Node():
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
         return BinOpNode(BinaryOpr.MUL, self, other)
 
     def __rmul__(
@@ -200,7 +200,7 @@ class Node():
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
         return BinOpNode(BinaryOpr.MUL, self, other)
 
     def __floordiv__(
@@ -208,25 +208,25 @@ class Node():
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
 
-        return BinOpNode(BinaryOpr.SDIV, self, other)
+        return BinOpNode(BinaryOpr.IDIV, self, other)
 
     def __rfloordiv__(
         self,
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
 
-        return BinOpNode(BinaryOpr.SDIV, other, self)
+        return BinOpNode(BinaryOpr.IDIV, other, self)
 
     def __truediv__(
         self,
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
         return BinOpNode(BinaryOpr.FDIV, self, other)
 
     def __rtruediv__(
@@ -234,7 +234,7 @@ class Node():
         other: Union[Node, int, float, complex]
     ) -> Node:
         if isinstance(other, (int, float, complex)):
-            other = make_const_node(other, self.dtype)
+            other = make_const_node(other, type(other))
         return BinOpNode(BinaryOpr.FDIV, other, self)
 
     def __neg__(self):
@@ -246,7 +246,7 @@ class Node():
     def __getitem__(
         self,
         index: Union[int, ir.Constant, ir.Instruction,
-                list, tuple, Node, slice, np.ndarray]
+                     list, tuple, Node, slice, np.ndarray]
     ) -> Node:
         if isinstance(index, int):
             index = ConstNode(index, DType.Int)
@@ -263,7 +263,7 @@ class Node():
         """
 
         if isinstance(val, (float, int, complex)):
-            val = make_const_node(val, self.dtype)
+            val = make_const_node(val, type(val))
         length = compute_size(index, self.size)
         if isinstance(index, Node):
             assert(index.dtype == DType.Int)
@@ -277,11 +277,14 @@ class Node():
             val: Node) -> None:
         """When set index to one node, it must be LValue node,
         if not, the graph maintainer should modify its vtype to LEFT.
-        Also, only when the arry is required, it can be generated.
+        Also, only when the array is required, will it be generated.
         """
         if isinstance(index, int):
             const0 = ir.Constant(int_type, 0)
             src_nums = val.get_ele(const0, builder)
+            if val.dtype != self.dtype:
+                src_nums = build_type_cast(
+                    builder, src_nums, val.dtype, self.dtype)
             index = ir.Constant(int_type, index)
             self._store_to_alloc(index, src_nums, builder)
         elif isinstance(index, slice):
@@ -406,41 +409,48 @@ class BinOpNode(Node):
         """
         assert(loop_inc.type == int_type)
         if not self.dtype in (DType.Complx, DType.DComplx):
-            left_num = self.LHS.get_ele(loop_inc, builder)[0]
-            right_num = self.RHS.get_ele(loop_inc, builder)[0]
+            left_nums = self.LHS.get_ele(loop_inc, builder)
+            right_nums = self.RHS.get_ele(loop_inc, builder)
 
             opr_instr = getattr(builder, biopr_map[self.opr][self.dtype])
+            if self.opr != BinaryOpr.IDIV:
+                # for IDIV operator, the precision may vary.
+                if self.LHS.dtype != self.dtype:
+                    left_nums = build_type_cast(
+                        builder, left_nums, self.LHS.dtype, self.dtype)
 
-            if self.LHS.dtype != self.dtype:
-                cast_params = type_cast_llvm[(self.LHS.dtype, self.dtype)]
-                if cast_params:
-                    cast_instr = getattr(builder, cast_params[0])
-                    left_num = cast_instr(left_num, cast_params[1])
+                if self.RHS.dtype != self.dtype:
+                    right_nums = build_type_cast(
+                        builder, right_nums, self.RHS.dtype, self.dtype)
 
-            if self.RHS.dtype != self.dtype:
-                cast_params = type_cast_llvm[(self.RHS.dtype, self.dtype)]
-                if cast_params:
-                    cast_instr = getattr(builder, cast_params[0])
-                    right_num = cast_instr(right_num, cast_params[1])
+            elif self.LHS.dtype != self.RHS.dtype:
+                left_nums = build_type_cast(
+                    builder, left_nums, self.LHS.dtype, DType.Double)
+                right_nums = build_type_cast(
+                    builder, right_nums, self.RHS.dtype, DType.Double)
 
-            product = opr_instr(left_num, right_num)
-            return [product]
+            product = [opr_instr(left_nums[0], right_nums[0])]
+            if self.opr == BinaryOpr.IDIV:
+                if self.LHS.dtype != self.RHS.dtype:
+                    product_type = DType.Double
+                else:
+                    product_type = self.LHS.dtype
+                product = build_type_cast(
+                    builder, product, product_type, DType.Int)
+
+            return product
         else:
 
             if self.LHS.dtype in (DType.Complx, DType.DComplx):
                 left_num_real, left_num_imag = self.LHS.get_ele(
                     loop_inc, builder)
-
             else:
                 left_num_real = self.LHS.get_ele(loop_inc, builder)[0]
                 left_num_imag = ir.Constant(type_map_llvm[self.LHS.dtype], 0)
 
             if self.LHS.dtype != self.dtype:
-                cast_params = type_cast_llvm[(self.LHS.dtype, self.dtype)]
-                if cast_params:
-                    cast_instr = getattr(builder, cast_params[0])
-                    left_num_real = cast_instr(left_num_real, cast_params[1])
-                    left_num_imag = cast_instr(left_num_imag, cast_params[1])
+                left_nums = build_type_cast(builder, [left_num_real, left_num_imag],
+                                            self.LHS.dtype, self.dtype)
 
             if self.RHS.dtype in (DType.Complx, DType.DComplx):
                 right_num_real, right_num_imag = self.RHS.get_ele(
@@ -450,11 +460,8 @@ class BinOpNode(Node):
                 right_num_imag = ir.Constant(type_map_llvm[self.RHS.dtype], 0)
 
             if self.RHS.dtype != self.dtype:
-                cast_params = type_cast_llvm[(self.RHS.dtype, self.dtype)]
-                if cast_params:
-                    cast_instr = getattr(builder, cast_params[0])
-                    right_num_real = cast_instr(right_num_real, cast_params[1])
-                    right_num_imag = cast_instr(right_num_imag, cast_params[1])
+                right_nums = build_type_cast(builder, [right_num_real, right_num_imag],
+                                             self.RHS.dtype, self.dtype)
 
             if self.opr == BinaryOpr.ADD or self.opr == BinaryOpr.SUB:
                 opr_instr = getattr(builder, biopr_map[self.opr][self.dtype])
@@ -589,7 +596,7 @@ class GetSliceNode(Node):
     def __init__(
         self,
         ind: Union[ir.Constant,
-              ir.Instruction, list, tuple, Node, slice, np.ndarray],
+                   ir.Instruction, list, tuple, Node, slice, np.ndarray],
         src: Node
     ) -> None:
         size = compute_size(ind, src.size)
@@ -734,10 +741,10 @@ def det_size(LHS: Node, RHS: Node) -> int:
 def det_dtype(opr: BinaryOpr, Ltype: DType, Rtype: DType) -> DType:
     """Determine the output data type,
     Implicit dtype conversion may applies.
-    Note that type may varies if opr is SDIV or FDIV
+    Note that type may varies if opr is IDIV or FDIV
     """
 
-    if opr != BinaryOpr.SDIV:
+    if opr != BinaryOpr.IDIV:
         if Ltype == DType.Int and Rtype == DType.Int and opr == BinaryOpr.FDIV:
             return DType.Float
         if Ltype == DType.Int:
@@ -763,7 +770,7 @@ def det_dtype(opr: BinaryOpr, Ltype: DType, Rtype: DType) -> DType:
 
         return DType.Complx
 
-    if opr == BinaryOpr.SDIV:
+    if opr == BinaryOpr.IDIV:
         if Ltype in (DType.DComplx, DType.Complx) or Rtype in (DType.DComplx, DType.Complx):
             print("Cannot perform floor div between {} and {}".format(Ltype, Rtype))
             raise ArithmeticError
@@ -793,5 +800,12 @@ def compute_size(index_obj, max_len: int) -> int:
         raise IndexError
 
 
-def make_const_node(raw: Union[int, float, complex], dtype: DType) -> ConstNode:
-    return ConstNode(raw, dtype)
+def make_const_node(raw: Union[int, float, complex], pytype: type) -> ConstNode:
+    if pytype == int:
+        return ConstNode(raw, DType.Int)
+    elif pytype == float:
+        return ConstNode(raw, DType.Float)
+    elif pytype == complex:
+        return ConstNode(raw, DType.DComplx)
+    else:
+        raise TypeError(f"The const {raw} has unsupported type: {pytype}.")

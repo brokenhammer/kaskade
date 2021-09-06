@@ -22,7 +22,7 @@ class BinaryOpr(Enum):
     ADD = 1
     SUB = 2
     MUL = 3
-    SDIV = 4
+    IDIV = 4
     FDIV = 5
 
 
@@ -63,8 +63,8 @@ biopr_map = {
         DType.Complx: "fmul",
         DType.DComplx: "fmul"
     },
-    BinaryOpr.SDIV: {
-        DType.Int: "sdiv",
+    BinaryOpr.IDIV: {
+        DType.Int: "fdiv",
     },
     BinaryOpr.FDIV: {
         DType.Float: "fdiv",

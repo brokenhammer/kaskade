@@ -1,6 +1,8 @@
 from enum import Enum
 import llvmlite.ir as ir
 from ctypes import CFUNCTYPE, c_int, c_float, POINTER, c_double, py_object, byref, pointer, cast
+from typing import List
+from llvmlite.ir import builder
 
 
 class DType(Enum):
@@ -47,6 +49,9 @@ type_cast_llvm = {
     (DType.Double, DType.Int): ("fptosi", ir.IntType(32)),
     (DType.Float, DType.Double): ("fpext", ir.DoubleType()),
     (DType.Double, DType.Float): ("fptrunc", ir.FloatType()),
+    (DType.Double, DType.Double): None,
+    (DType.Float, DType.Float): None,
+    (DType.Int, DType.Int): None,
 
 
     (DType.Int, DType.Complx): ("sitofp", ir.FloatType()),
@@ -58,6 +63,25 @@ type_cast_llvm = {
     (DType.Complx, DType.DComplx): ("fpext", ir.DoubleType()),
     (DType.DComplx, DType.Complx): ("fptrunc", ir.FloatType())
 }
+
+# type cast from python
+
+
+# intrinsic type casting
+def build_type_cast(builder: builder, nums : List[ir.LoadInstr], src_type: DType, dest_type: DType):
+    """ Build LLVM IR to convert ele from src_type to dest_type.
+    """
+    cast_params = type_cast_llvm[(src_type, dest_type)]
+    ret = []
+    if cast_params:
+        cast_instr = getattr(builder, cast_params[0])
+        for num in nums:
+            ret.append(cast_instr(num, cast_params[1]))
+    else:
+        ret = nums
+
+    return ret
+
 
 if __name__ == "__main__":
     print(isinstance(DType.Int, DType))

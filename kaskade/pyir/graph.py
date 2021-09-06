@@ -76,7 +76,7 @@ class Graph():
         gr._clear()
         self._required_nodes.clear()
 
-    def compile_and_run(self, outputs=[], inputs={}) -> List[np.ndarray]:
+    def compile_and_run(self, outputs=(), inputs={}) -> List[np.ndarray]:
         if not self._compiled:
             self._mainfn, self._builder = initialize(inputs, outputs)
             self._graph_gen(self._builder, inputs, outputs)
