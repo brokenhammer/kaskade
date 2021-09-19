@@ -687,18 +687,22 @@ class GetSliceNode(Node):
 
 class FuncNode(Node):
     # mapping scalar function to vector
-    def __init__(self, size: int, func_name: str, rettype: DType, ftype: ir.FunctionType, SRC: List[Node] or List[None]):
+    def __init__(self, size: int, func_name: str, rettype: DType, SRC: List[Node] or List[None]):
         super().__init__(size, func_name, rettype)
         self.func_name = func_name
         self.SRC = SRC
-        self.ftype = ftype
         for n in SRC:
             assert(not n.dtype in (DType.Complx, DType.DComplx))
             self.dependence.add(n)
 
+
     def _code_gen(self, builder: ir.IRBuilder) -> None:
         mod = builder.block.module
-        instr = ir.values.Function(mod, self.ftype, self.func_name)
+        # instr = ir.values.Function(mod, self.ftype, self.func_name)
+        input_type = []
+        for in_node in self.SRC:
+            input_type.append(type_map_llvm[in_node.dtype])
+        instr = mod.declare_intrinsic(self.func_name, input_type)
         params = []
         with LoopCtx(self.name, builder, self.size) as loop:
             index = builder.load(loop.inc)
@@ -715,10 +719,14 @@ class FuncNode(Node):
     ) -> List[ir.Instruction]:
 
         mod = builder.block.module
-        instr = ir.values.Function(mod, self.ftype, self.func_name)
+        # instr = ir.values.Function(mod, self.ftype, self.func_name)
+        input_type = []
+        for in_node in self.SRC:
+            input_type.append(type_map_llvm[in_node.dtype])
+        instr = mod.declare_intrinsic(self.func_name, input_type)
         params = []
         for n in self.SRC:
-            params.append(n.get_ele(ind, builder))
+            params.append(n.get_ele(ind, builder)[0])
         res = builder.call(instr, params)
         return [res]
 

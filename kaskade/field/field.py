@@ -1,3 +1,4 @@
+from __future__ import annotations
 from numpy import dtype
 from kaskade.pyir.typing import DType
 from kaskade.pyir import graph
@@ -6,6 +7,7 @@ from . import global_ctx as ctx
 from ..pyir.node import Node, BinOpNode
 from typing import Union, List
 from ..pyir.utils import BinaryOpr, biopr_map
+from ..pyir import functions as node_functions
 
 
 class Field():
@@ -20,8 +22,36 @@ class Field():
         self.blob = None
         self.data = None
 
-    def __add__(self, other):
+# Basic mathematical operations
+    def __add__(self, other: Union[Field, int, float, complex]) -> Field:
         return BinOpField(BinaryOpr.ADD, self, other)
+
+    def __radd__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.ADD, other, self)
+
+    def __sub__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.SUB, self, other)
+
+    def __rsub__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.SUB, other, self)
+
+    def __mul__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.MUL, self, other)
+
+    def __rmul__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.MUL, other, self)
+
+    def __floordiv__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.IDIV, self, other)
+
+    def __rfloordiv__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.IDIV, other, self)
+
+    def __truediv__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.FDIV, self, other)
+
+    def __rtruediv__(self, other: Union[Field, int, float, complex]) -> Field:
+        return BinOpField(BinaryOpr.FDIV, other, self)
 
 
 def make_coord_field(grid: Grid) -> List[Field]:
@@ -74,3 +104,10 @@ class InputField(Field):
             self.blob = gg.new(grid.size, name, DType.Double)
         else:
             self.blob = bound_node
+
+
+def sin(f: Field):
+    sin_node = node_functions.sin(f.blob)
+    ret_field = Field(f.grid)
+    ret_field.blob = sin_node
+    return ret_field
